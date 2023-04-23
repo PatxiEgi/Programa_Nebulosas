@@ -1,0 +1,529 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Apr 10 20:42:03 2023
+
+@author: Patxi
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# =============================================================================
+# Constantes
+# =============================================================================
+
+k_b = 8.617333262 * 10**(-5)	# Constante de Boltzmann [eV/K]
+h = 4.13566743 * 10**(-15) # Constante de Planck [eV*s]
+c = 2.997925e+8 # Velocidad de la luz [m/s]
+
+# =============================================================================
+# 1. Cálculo de densidades críticas.
+#   1.1 Introducimos los valores de la tabla: pesos estadísticos, fuerzas de colisión, diferencias entre niveles de energía
+#       y los posibles procesos radiativos (mediante los coeficientes de Einstein: A)
+#   1.2 Cálculo de todos los coeficientes de excitación/desexcitación
+#   1.3 Determinamos qué procesos contribuirán al cálculo de la densidad crítica, usando 0 cuando no contribuye y 1 cuando sí.
+#   1.4 Usamos la ecuación que permite el cálculo de la densidad crítica.
+# =============================================================================
+
+#-------------------------------1.1--------------------------------------------
+
+# Temperatura electrónica [K]
+
+T_e=10000 
+
+# Pesos estadísticos de los procesos de excitación, en orden de la tabla del informe. Sacados del NIST.
+w_i=np.array([1,1,3,1,3,5,1,3,5,5]) 
+
+# Pesos estadísticos de los procesos de desexcitación, en orden de la tabla del informe. Sacados del NIST.
+w_j=np.array([3,5,5,5,5,5,1,1,1,1]) 
+
+# Valores de fuerza de colisión a 10000K
+sigma_10000=np.array([0.5421,0.2568,1.2526,0.2492,0.7506,1.2620,0.0327,0.0985,0.1657,0.6174])
+
+#Diferencia entre energías entre distintas transiciones
+xi_10000=np.array([0.01403648,0.0379607,0.02396,2.513565,2.499565,2.475605,5.354349,5.340349,5.316389,2.840784])
+
+
+# Voy a definir los procesos radiativos posibles para cada nivel de energía.
+A=[2.596e-5,3.03e-11,9.632e-5,2.322e-6,6.791e-3,2.046e-2,0,0.2255,6.998e-4,1.685]
+A_P0=A*0
+A_P1=A*np.array([1,0,0,0,0,0,0,0,0,0])
+A_P2=A*np.array([0,1,1,0,0,0,0,0,0,0])
+A_D2=A*np.array([0,0,0,1,1,1,0,0,0,0])
+A_S0=A*np.array([0,0,0,0,0,0,1,1,1,1])
+
+#-------------------------------1.2--------------------------------------------
+#Definimos las funciones que permiten el cálculo de excitación y desexcitación.
+
+def q_ex(T_e,w_i,sigma,xi):
+    
+    q_exit=(8.629e-6/np.sqrt(T_e))  * (sigma/w_i) *  np.exp(-xi/(k_b*T_e))
+
+    return q_exit
+
+def q_desex(T_e,w_j,sigma):
+    q_desex=(8.629e-6/np.sqrt(T_e))  * (sigma/w_j)
+
+    return q_desex
+
+exit_tot=[0,0,0,0,0,0,0,0,0,0]
+desex_tot=[0,0,0,0,0,0,0,0,0,0]
+
+for i in range(10):
+    exit_tot[i]  = q_ex(T_e, w_i[i], sigma_10000[i], xi_10000[i])
+    desex_tot[i] = q_desex(T_e,w_j[i],sigma_10000[i])
+    
+#-------------------------------1.3--------------------------------------------
+
+    
+q_P0=exit_tot*np.array([1,1,0,1,0,0,1,0,0,0])
+q_P1=exit_tot*np.array([0,0,1,0,1,0,0,1,0,0])+desex_tot*np.array([1,0,0,0,0,0,0,0,0,0])
+q_P2=exit_tot*np.array([0,0,0,0,0,1,0,0,1,0])+desex_tot*np.array([0,1,1,0,0,0,0,0,0,0])
+q_D2=exit_tot*np.array([0,0,0,0,0,0,0,0,0,1])+desex_tot*np.array([0,0,0,1,1,1,0,0,0,0])
+q_S0=desex_tot*np.array([0,0,0,0,0,0,1,1,1,1])
+
+#-------------------------------1.4--------------------------------------------
+
+# DENSIDADES CRÍTICAS
+
+n_P0=np.sum(A_P0)/np.sum(q_P0)
+n_P1=np.sum(A_P1)/np.sum(q_P1)
+n_P2=np.sum(A_P2)/np.sum(q_P2)
+n_D2=np.sum(A_D2)/np.sum(q_D2)
+n_S0=np.sum(A_S0)/np.sum(q_S0)
+
+print('Los valores de las densidades críticas')
+print('n_c P0:',n_P0)
+print('n_c P1:',n_P1)
+print('n_c P2:',n_P2)
+print('n_c D2:',n_D2)
+print('n_c S0:',n_S0)
+
+# =============================================================================
+# 2. Cálculo de poblaciones relativas de todos los niveles.
+#   2.1 Crear una matriz que recoja las ecuaciones del equilibrio estadístico
+#   2.2 Resolver la matriz sacando los autovalores, para conseguir los valores de las densidades
+#   2.3 Poner las densidades de forma relativa a la densidad total
+#   2.4 Dibujar la evolución de las densidades relativas respecto a diferentes valores de n_e
+#   
+# =============================================================================
+
+#-------------------------------2.1--------------------------------------------
+
+
+# Vamos a crear una matriz de valores de A y q para escribir todo mediante bucles.
+
+# Para ello en la línea 0 irá el P0, en el 1 P1, en el 2 P2, 3 D2 y 4 S0.
+
+A_matriz=np.zeros((5,5))
+
+A_matriz[1][0]=A[0]
+A_matriz[2][0]=A[1]
+A_matriz[2][1]=A[2]
+A_matriz[3][0]=A[3]
+A_matriz[3][1]=A[4]
+A_matriz[3][2]=A[5]
+A_matriz[4][0]=A[6]
+A_matriz[4][1]=A[7]
+A_matriz[4][2]=A[8]
+A_matriz[4][3]=A[9]
+
+
+# Vamos a crear una matriz de q, para los niveles de excitación y desexcitación.            
+
+q_matriz=np.zeros((5,5))
+
+q_matriz[1][0]=desex_tot[0]
+q_matriz[2][0]=desex_tot[1]
+q_matriz[2][1]=desex_tot[2]
+q_matriz[3][0]=desex_tot[3]
+q_matriz[3][1]=desex_tot[4]
+q_matriz[3][2]=desex_tot[5]
+q_matriz[4][0]=desex_tot[6]
+q_matriz[4][1]=desex_tot[7]
+q_matriz[4][2]=desex_tot[8]
+q_matriz[4][3]=desex_tot[9]
+
+q_matriz[0][1]=exit_tot[0]
+q_matriz[0][2]=exit_tot[1]
+q_matriz[1][2]=exit_tot[2]
+q_matriz[0][3]=exit_tot[3]
+q_matriz[1][3]=exit_tot[4]
+q_matriz[2][4]=exit_tot[5]
+q_matriz[0][4]=exit_tot[6]
+q_matriz[1][4]=exit_tot[7]
+q_matriz[2][4]=exit_tot[8]
+q_matriz[3][4]=exit_tot[9]
+
+matrix=np.zeros((5,5))
+n_elec=np.logspace(0,9,1000)
+
+ploteo_P0=[]
+ploteo_P1=[]
+ploteo_P2=[]
+ploteo_D2=[]
+ploteo_S0=[]
+
+# Creamos la matriz que recoge todas las ecuaciones de equilibrio estadístico.
+
+for n_e in n_elec:
+    for i in range(5):
+        for j in range(5):
+            if(i!=j):
+                prim_termino=n_e*q_matriz[j][i]
+                matrix[i][j]=matrix[i][j]+prim_termino
+                
+                tercer_termino=n_e*q_matriz[i][j]
+                matrix[i][i]=matrix[i][i]-tercer_termino
+            if(j>i):
+                segundo_termino=A_matriz[j][i]
+                matrix[i][j]=matrix[i][j]+segundo_termino
+            if(j<i):
+                cuarto_termino=A_matriz[i][j]
+                matrix[i][i]=matrix[i][i]-cuarto_termino
+            #Ecuación de cierre.
+            if(i==4):
+                matrix[i][j]=1
+
+    G=np.array([0,0,0,0,1])
+    
+#-------------------------------2.2--------------------------------------------
+
+    sol = np.linalg.solve(matrix,G)
+    n_total=sol[0]+sol[1]+sol[2]+sol[3]+sol[4]
+    
+#-------------------------------2.3--------------------------------------------
+
+    valores_P0=((sol[0]/n_total))
+    valores_P1=((sol[1]/n_total))
+    valores_P2=((sol[2]/n_total))
+    valores_D2=((sol[3]/n_total))
+    valores_S0=((sol[4]/n_total))
+        
+
+    ploteo_P0.append(valores_P0)
+    ploteo_P1.append(valores_P1)
+    ploteo_P2.append(valores_P2)
+    ploteo_D2.append(valores_D2)
+    ploteo_S0.append(valores_S0)
+    
+    
+#-------------------------------2.4--------------------------------------------
+
+plt.figure(1,figsize=(8,5))    
+plt.style.use('seaborn-whitegrid')
+
+plt.xscale('log')
+plt.xlabel(r'$n_e [cm^{-3}]$',size=15)
+plt.ylabel(r'$\frac{n_i}{n_{total}}$',size=12)
+
+
+plt.plot(n_elec,ploteo_P0,label=r'$^{3}P_0$')
+plt.plot(n_elec,ploteo_P1,label=r'$^{3}P_1$')
+plt.plot(n_elec,ploteo_P2,label=r'$^{3}P_2$')
+plt.plot(n_elec,ploteo_D2,label=r'$^{1}D_2$')
+plt.plot(n_elec,ploteo_S0,label=r'$^{1}S_0$')
+
+plt.legend()
+
+# =============================================================================
+# 3. Cálculo de poblaciones relativas respecto a la temperatura electrónica
+#   3.1 Haremos lo mismo que en apartado anterior, pero recalcularemos los valores de 
+#       los coeficientes de excitación/desexcitación
+#   3.2 Dibujaremos las poblaciones relativas respecto a la temperatura electrónica.
+# =============================================================================
+
+#-------------------------------3.1--------------------------------------------
+
+
+n_e1=1e2
+T_e1=np.linspace(5000,15000,10000)
+matrix1=np.zeros((5,5))
+
+ploteo1_P0=[]
+ploteo1_P1=[]
+ploteo1_P2=[]
+ploteo1_D2=[]
+ploteo1_S0=[]
+      
+
+for T in T_e1:
+    
+# No conocemos los valores del SIGMA para todas las T. Se puede conseguir por interpolación.
+
+    omega_P1P0=np.interp(T,[5000,10000,15000,20000],[0.5199,0.5421,0.5538,0.5587])
+    omega_P2P0=np.interp(T,[5000,10000,15000,20000],[0.2424,0.2568,0.2682,0.2766])
+    omega_P2P1=np.interp(T,[5000,10000,15000,20000],[1.1873,1.2526,1.2940,1.3194])
+    omega_D2P0=np.interp(T,[5000,10000,15000,20000],[0.2265,0.2492,0.2645,0.2739])
+    omega_D2P1=np.interp(T,[5000,10000,15000,20000],[0.6824,0.7506,0.7966,0.8247])
+    omega_D2P2=np.interp(T,[5000,10000,15000,20000],[1.1475,1.2620,1.3385,1.3850])
+    omega_S0P0=np.interp(T,[5000,10000,15000,20000],[0.0295,0.0327,0.0349,0.0363])
+    omega_S0P1=np.interp(T,[5000,10000,15000,20000],[0.0890,0.0985,0.1051,0.1093])
+    omega_S0P2=np.interp(T,[5000,10000,15000,20000],[0.1496,0.1657,0.1769,0.1839])
+    omega_S0D2=np.interp(T,[5000,10000,15000,20000],[0.5208,0.6174,0.6257,0.6162])
+    
+    omega_inter=np.array([omega_P1P0,omega_P2P0,omega_P2P1,omega_D2P0,omega_D2P1,omega_D2P2,omega_S0P0,omega_S0P1,omega_S0P2,omega_S0D2])
+
+# Calculamos los valores de exitación y desexcitación para cada valor de T_e
+    exit_tot1=[0,0,0,0,0,0,0,0,0,0]
+    desex_tot1=[0,0,0,0,0,0,0,0,0,0]
+
+    for a in range(10):
+        exit_tot1[a]  = q_ex(T, w_i[a], omega_inter[a], xi_10000[a])
+        desex_tot1[a] = q_desex(T,w_j[a],omega_inter[a])
+    
+# Y creamos en cada iteración la matriz q.
+    q_matriz1=np.zeros((5,5))
+
+    q_matriz1[1][0]=desex_tot1[0]
+    q_matriz1[2][0]=desex_tot1[1]
+    q_matriz1[2][1]=desex_tot1[2]
+    q_matriz1[3][0]=desex_tot1[3]
+    q_matriz1[3][1]=desex_tot1[4]
+    q_matriz1[3][2]=desex_tot1[5]
+    q_matriz1[4][0]=desex_tot1[6]
+    q_matriz1[4][1]=desex_tot1[7]
+    q_matriz1[4][2]=desex_tot1[8]
+    q_matriz1[4][3]=desex_tot1[9]
+
+    q_matriz1[0][1]=exit_tot1[0]
+    q_matriz1[0][2]=exit_tot1[1]
+    q_matriz1[1][2]=exit_tot1[2]
+    q_matriz1[0][3]=exit_tot1[3]
+    q_matriz1[1][3]=exit_tot1[4]
+    q_matriz1[2][3]=exit_tot1[5]
+    q_matriz1[0][4]=exit_tot1[6]
+    q_matriz1[1][4]=exit_tot1[7]
+    q_matriz1[2][4]=exit_tot1[8]
+    q_matriz1[3][4]=exit_tot1[9]
+   
+# Creamos la matriz con todas las ecuaciones de equilibrio estadístico.
+    for i in range(5):
+        for j in range(5):
+            if(i!=j):
+                prim_termino1=n_e1*q_matriz1[j][i]
+                matrix1[i][j]=matrix1[i][j]+prim_termino1
+                
+                tercer_termino1=n_e1*q_matriz1[i][j]
+                matrix1[i][i]=matrix1[i][i]-tercer_termino1
+            if(j>i):
+                segundo_termino1=A_matriz[j][i]
+                matrix1[i][j]=matrix1[i][j]+segundo_termino1
+            if(j<i):
+                cuarto_termino1=A_matriz[i][j]
+                matrix1[i][i]=matrix1[i][i]-cuarto_termino1
+            #Ecuación de cierre.
+            if(i==4):
+                matrix1[i][j]=1
+
+    G1=np.array([0,0,0,0,1])
+    
+# Sacamos los valores en cada iteración.
+    sol1 = np.linalg.solve(matrix1,G1)
+    n_total1=sol1[0]+sol1[1]+sol1[2]+sol1[3]+sol1[4]
+    
+    
+    valores1_P0=((sol1[0]/n_total1))
+    valores1_P1=((sol1[1]/n_total1))
+    valores1_P2=((sol1[2]/n_total1))
+    valores1_D2=((sol1[3]/n_total1))
+    valores1_S0=((sol1[4]/n_total1))
+
+
+    ploteo1_P0.append(valores1_P0)
+    ploteo1_P1.append(valores1_P1)
+    ploteo1_P2.append(valores1_P2)
+    ploteo1_D2.append(valores1_D2)
+    ploteo1_S0.append(valores1_S0)
+    
+#-------------------------------3.2--------------------------------------------
+
+plt.figure(2,figsize=(8,5))    
+plt.style.use('seaborn-whitegrid')
+
+plt.yscale('log')
+plt.xlim(4000,17000)
+plt.ylabel(r'$\frac{n_i}{n_{total}}$',size=15)
+plt.xlabel(r'$T_e [K]$',size=12)
+ 
+plt.plot(T_e1,ploteo1_P0,label=r'$^{3}P_0$')
+plt.plot(T_e1,ploteo1_P1,label=r'$^{3}P_1$')
+plt.plot(T_e1,ploteo1_P2,label=r'$^{3}P_2$')
+plt.plot(T_e1,ploteo1_D2,label=r'$^{1}D_2$')
+plt.plot(T_e1,ploteo1_S0,label=r'$^{1}S_0$')
+
+plt.legend(loc=7)
+plt.show()
+
+plt.figure(3,figsize=(8,5))
+plt.style.use('seaborn-whitegrid')
+
+plt.title('Zoom al gráfico anterior')
+plt.ylim(1e-2,1)
+plt.yscale('log')
+plt.xlim(4000,17000)
+plt.ylabel(r'$\frac{n_i}{n_{total}}$',size=15)
+plt.xlabel(r'$T_e [K]$',size=12)
+ 
+plt.plot(T_e1,ploteo1_P0,label=r'$^{3}P_0$')
+plt.plot(T_e1,ploteo1_P1,label=r'$^{3}P_1$')
+plt.plot(T_e1,ploteo1_P2,label=r'$^{3}P_2$')
+plt.legend()
+plt.show()
+
+# =============================================================================
+# 4. Cálculo del cociente respecto a la temperatura electronica en 3 casos de n_e
+#   4.1 Hacemos el mismo proceso que en el apartado anterior pero para diferentes valores de n_e
+#   4.2 Para cada valor de n_e calculamos los valores de los cocientes y los guardamos en una lista
+#   4.3 Dibujamos la gráfica del cociente respecto a la temperatura electrónica para los tres casos.
+# =============================================================================
+
+
+#-------------------------------4.1--------------------------------------------
+
+# Definimos la función para calcular el cociente.
+
+def j_cociente(lamb,n,A):
+    
+    lamb = lamb * 10**(-10) 
+    return ((h *(c / lamb)) / (4 * np.pi))* n * A
+
+    
+# Creamos la lista de los valores de la n_e
+n_e2=[100,1e5,1e9]
+T_e2=np.linspace(5000,15000,10000)
+
+ 
+
+array_cocientes100=[]
+array_cocientes105=[]
+array_cocientes109=[]
+
+# Hacemos lo mismo que en el apartado anterior, pero para cada n_e
+for nn in n_e2:
+    
+    matrix2=np.zeros((5,5))
+    for T2 in T_e2:
+    
+# No conocemos los valores del SIGMA para todas las T. Se puede conseguir por interpolación.
+
+        inter_P1P0=np.interp(T2,[5000,10000,15000,20000],[0.5199,0.5421,0.5538,0.5587])
+        inter_P2P0=np.interp(T2,[5000,10000,15000,20000],[0.2424,0.2568,0.2682,0.2766])
+        inter_P2P1=np.interp(T2,[5000,10000,15000,20000],[1.1873,1.2526,1.2940,1.3194])
+        inter_D2P0=np.interp(T2,[5000,10000,15000,20000],[0.2265,0.2492,0.2645,0.2739])
+        inter_D2P1=np.interp(T2,[5000,10000,15000,20000],[0.6824,0.7506,0.7966,0.8247])
+        inter_D2P2=np.interp(T2,[5000,10000,15000,20000],[1.1475,1.2620,1.3385,1.3850])
+        inter_S0P0=np.interp(T2,[5000,10000,15000,20000],[0.0295,0.0327,0.0349,0.0363])
+        inter_S0P1=np.interp(T2,[5000,10000,15000,20000],[0.0890,0.0985,0.1051,0.1093])
+        inter_S0P2=np.interp(T2,[5000,10000,15000,20000],[0.1496,0.1657,0.1769,0.1839])
+        inter_S0D2=np.interp(T2,[5000,10000,15000,20000],[0.5208,0.6174,0.6257,0.6162])
+        
+        omega_P1P0=inter_P1P0
+        omega_P2P0=inter_P2P0
+        omega_P2P1=inter_P2P1
+        omega_D2P0=inter_D2P0
+        omega_D2P1=inter_D2P1
+        omega_D2P2=inter_D2P2
+        omega_S0P0=inter_S0P0
+        omega_S0P1=inter_S0P1
+        omega_S0P2=inter_S0P2
+        omega_S0D2=inter_S0D2
+    
+        omega_inter2=np.array([omega_P1P0,omega_P2P0,omega_P2P1,omega_D2P0,omega_D2P1,omega_D2P2,omega_S0P0,omega_S0P1,omega_S0P2,omega_S0D2])
+
+# Calculamos los valores de exitación y desexcitación para cada valor de T_e2
+
+        exit_tot2=[0,0,0,0,0,0,0,0,0,0]
+        desex_tot2=[0,0,0,0,0,0,0,0,0,0]
+    
+        for a in range(10):
+            exit_tot2[a]  = q_ex(T2, w_i[a], omega_inter2[a], xi_10000[a])
+            desex_tot2[a] = q_desex(T2,w_j[a],omega_inter2[a])
+            
+# Y creamos en cada iteración la matriz q2.
+        q_matriz2=np.zeros((5,5))
+
+        q_matriz2[1][0]=desex_tot2[0]
+        q_matriz2[2][0]=desex_tot2[1]
+        q_matriz2[2][1]=desex_tot2[2]
+        q_matriz2[3][0]=desex_tot2[3]
+        q_matriz2[3][1]=desex_tot2[4]
+        q_matriz2[3][2]=desex_tot2[5]
+        q_matriz2[4][0]=desex_tot2[6]
+        q_matriz2[4][1]=desex_tot2[7]
+        q_matriz2[4][2]=desex_tot2[8]
+        q_matriz2[4][3]=desex_tot2[9]
+        
+        q_matriz2[0][1]=exit_tot2[0]
+        q_matriz2[0][2]=exit_tot2[1]
+        q_matriz2[1][2]=exit_tot2[2]
+        q_matriz2[0][3]=exit_tot2[3]
+        q_matriz2[1][3]=exit_tot2[4]
+        q_matriz2[2][3]=exit_tot2[5]
+        q_matriz2[0][4]=exit_tot2[6]
+        q_matriz2[1][4]=exit_tot2[7]
+        q_matriz2[2][4]=exit_tot2[8]
+        q_matriz2[3][4]=exit_tot2[9]
+        
+# Creamos la matriz con todas las ecuaciones de equilibrio estadístico.
+        for i in range(5):
+            for j in range(5):
+                if(i!=j):
+                    prim_termino2=nn*q_matriz2[j][i]
+                    matrix2[i][j]=matrix2[i][j]+prim_termino2
+                    
+                    tercer_termino2=nn*q_matriz2[i][j]
+                    matrix2[i][i]=matrix2[i][i]-tercer_termino2
+                if(j>i):
+                    segundo_termino2=A_matriz[j][i]
+                    matrix2[i][j]=matrix2[i][j]+segundo_termino2
+                if(j<i):
+                    cuarto_termino2=A_matriz[i][j]
+                    matrix2[i][i]=matrix2[i][i]-cuarto_termino2
+                #Ecuación de cierre.
+                if(i==4):
+                    matrix2[i][j]=1
+                else:
+                    matrix2[i][j]=matrix2[i][j]                    
+                    
+                                
+        G2=np.array([0,0,0,0,1])
+                                
+# Sacamos los valores en cada iteración.
+
+        sol2 = np.linalg.solve(matrix2,G2)
+        
+#-------------------------------4.2--------------------------------------------
+
+# Hacemos los cálculos de los cocientes.
+        if(nn==100):
+            cociente1=(j_cociente(4959,sol2[3],A[4])+j_cociente(5007,sol2[3],A[5]))/j_cociente(4363,sol2[4],A[9])
+            array_cocientes100.append(cociente1)
+            
+        elif(nn==1e5):
+            cociente2=(j_cociente(4959,sol2[3],A[4])+j_cociente(5007,sol2[3],A[5]))/j_cociente(4363,sol2[4],A[9])
+            array_cocientes105.append(cociente2)
+        elif(nn==1e9):
+            cociente3=(j_cociente(4959,sol2[3],A[4])+j_cociente(5007,sol2[3],A[5]))/j_cociente(4363,sol2[4],A[9])
+            array_cocientes109.append(cociente3)
+        else:
+            continue
+        
+#-------------------------------4.3--------------------------------------------
+
+# Dibujamos los resultados
+
+plt.figure(4,figsize=(8,5))
+plt.yscale('log')
+plt.ylabel(r'$\frac{j([OIII]4959)+j([OIII]5007)}{j([OIII]4363)}$',size=13)
+plt.xlabel(r'$T_e[K]$',size=12)
+ 
+
+
+
+plt.plot(T_e2,array_cocientes100,label=r'$n_e$=100 $cm^{-3}$')
+plt.plot(T_e2,array_cocientes105,label=r'$n_e$=$10^{5}$ $cm^{-3}$')
+plt.plot(T_e2,array_cocientes109,label=r'$n_e$=$10^{9}$ $cm^{-3}$')
+
+plt.legend(fontsize=14)
